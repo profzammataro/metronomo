@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>MetroSync</title>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap');
+
+:root {
+  --bg: #0a0a0a;
+  --surface: #141414;
+  --border: #2a2a2a;
+  --accent: #ff3d00;
+  --accent2: #ff9100;
+  --text: #e8e8e8;
+  --muted: #555;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Mono', monospace;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-x: hidden;
+}
+
+/* FLASH OVERLAY */
+#flash-overlay {
+  position: fixed; inset: 0;
+  background: white;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 999;
+}
+
+/* HEADER */
+header {
+  width: 100%;
+  padding: 16px 20px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: baseline; gap: 10px;
+}
+header h1 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.9rem; letter-spacing: 3px;
+  color: var(--accent);
+}
+header span { font-size: 0.6rem; color: var(--muted); letter-spacing: 2px; }
+
+/* STATUS */
+#status-bar {
+  width: 100%; padding: 7px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.68rem;
+}
+#conn-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted); transition: background .3s;
+  flex-shrink: 0;
+}
+#conn-dot.ok  { background: #00e676; box-shadow: 0 0 6px #00e676; }
+#conn-dot.err { background: var(--accent); }
+#status-text  { color: var(--muted); }
+
+/* MAIN */
+main {
+  flex: 1; width: 100%; max-width: 480px;
+  padding: 20px 18px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+
+/* CARD */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+.card-label {
+  font-size: 0.58rem; letter-spacing: 3px;
+  color: var(--muted); margin-bottom: 12px;
+  text-transform: uppercase;
+}
+
+/* BEAT DISPLAY */
+#big-flash {
+  width: 100%; height: 190px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  position: relative; overflow: hidden;
+}
+#big-flash::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center, var(--accent) 0%, transparent 70%);
+  opacity: 0;
+}
+#big-flash.beat { background: var(--accent); border-color: var(--accent2); }
+#big-flash.beat::before { opacity: 1; }
+
+#beat-number {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 7rem; line-height: 1;
+  color: var(--muted);
+  position: relative; z-index: 1;
+  user-select: none; transition: color .04s;
+}
+#big-flash.beat #beat-number { color: white; }
+
+/* DOTS */
+#dots {
+  display: flex; gap: 10px;
+  flex-wrap: wrap; justify-content: center;
+  margin-top: 4px;
+}
+.dot {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--border);
+}
+.dot.active       { background: var(--accent);  box-shadow: 0 0 10px var(--accent); }
+.dot.accent-beat  { background: var(--accent2); box-shadow: 0 0 14px var(--accent2); transform: scale(1.25); }
+
+/* BPM CONTROLS */
+#bpm-main-row {
+  display: flex; align-items: center; gap: 0;
+  border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden; margin-bottom: 10px;
+}
+.bpm-step-btn {
+  background: var(--bg);
+  border: none; color: var(--text);
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.4rem; cursor: pointer;
+  padding: 10px 0; user-select: none;
+  transition: background .12s;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 0;
+}
+.bpm-step-btn:active { background: var(--border); }
+.bpm-step-group {
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--border);
+}
+.bpm-step-group:last-child { border-right: none; border-left: 1px solid var(--border); }
+.bpm-step-btn small {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.5rem; color: var(--muted);
+  letter-spacing: 1px; line-height: 1;
+  margin-top: -2px;
+}
+#bpm-val {
+  flex: 1; text-align: center;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 3.8rem; color: var(--text);
+  user-select: none; line-height: 1;
+  padding: 8px 4px;
+}
+#bpm-val span {
+  display: block; font-family: 'DM Mono', monospace;
+  font-size: 0.55rem; color: var(--muted);
+  letter-spacing: 2px; margin-top: -4px;
+}
+
+/* SLIDER BPM */
+#bpm-slider {
+  width: 100%; accent-color: var(--accent);
+  height: 4px; cursor: pointer; margin-bottom: 10px;
+}
+
+/* TAP TEMPO */
+#tap-btn {
+  width: 100%; padding: 13px;
+  background: #1a1a1a;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: 'DM Mono', monospace;
+  font-size: 0.75rem; letter-spacing: 2px;
+  cursor: pointer; transition: all .15s;
+  user-select: none;
+}
+#tap-btn:active { background: var(--border); color: var(--text); border-color: var(--accent); }
+#tap-btn.tapping { border-color: var(--accent2); color: var(--accent2); }
+
+/* METER */
+#meter-row { display: flex; gap: 7px; }
+.meter-btn {
+  flex: 1; padding: 10px 0;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--muted);
+  font-family: 'DM Mono', monospace; font-size: 0.8rem;
+  cursor: pointer; transition: all .15s; user-select: none;
+}
+.meter-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+/* START */
+#start-btn {
+  width: 100%; padding: 17px;
+  background: var(--accent); border: none;
+  border-radius: 10px; color: white;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.6rem; letter-spacing: 4px;
+  cursor: pointer; transition: background .15s, transform .1s;
+  user-select: none;
+}
+#start-btn:active { transform: scale(.98); }
+#start-btn.running { background: #1c1c1c; border: 1px solid var(--accent); color: var(--accent); }
+
+/* FLASH TOGGLE */
+#flash-row { display: flex; align-items: center; justify-content: space-between; }
+.toggle-label { font-size: 0.75rem; }
+.toggle-sub   { font-size: 0.58rem; color: var(--muted); margin-top: 2px; }
+.toggle {
+  width: 44px; height: 24px; background: var(--border);
+  border-radius: 12px; position: relative; cursor: pointer;
+  transition: background .2s; flex-shrink: 0;
+}
+.toggle.on { background: var(--accent); }
+.toggle::after {
+  content: ''; position: absolute;
+  width: 18px; height: 18px; background: white;
+  border-radius: 50%; top: 3px; left: 3px;
+  transition: left .2s;
+}
+.toggle.on::after { left: 23px; }
+
+/* SETUP */
+#setup-card { display: flex; flex-direction: column; gap: 11px; }
+#setup-card input {
+  width: 100%; padding: 10px 12px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text);
+  font-family: 'DM Mono', monospace; font-size: 0.85rem;
+  outline: none; transition: border-color .2s;
+}
+#setup-card input:focus { border-color: var(--accent); }
+#setup-card input::placeholder { color: var(--muted); }
+#role-row { display: flex; gap: 8px; }
+.role-btn {
+  flex: 1; padding: 10px 0;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--muted);
+  font-family: 'DM Mono', monospace; font-size: 0.72rem;
+  cursor: pointer; transition: all .15s; user-select: none;
+}
+.role-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+#connect-btn {
+  width: 100%; padding: 12px;
+  background: var(--accent); border: none; border-radius: 6px;
+  color: white; font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.2rem; letter-spacing: 3px;
+  cursor: pointer; user-select: none;
+}
+#connect-btn:active { opacity: .8; }
+
+/* host-only nascosto per viewer */
+body.viewer .host-only { display: none !important; }
+
+@media (max-height: 500px) {
+  #big-flash { height: 110px; }
+  #beat-number { font-size: 3.8rem; }
+}
+</style>
+</head>
+<body>
+
+<div id="flash-overlay"></div>
+
+<header>
+  <h1>MetroSync</h1>
+  <span>METRONOMO VISIVO SINCRONIZZATO</span>
+</header>
+<div id="status-bar">
+  <div id="conn-dot"></div>
+  <span id="status-text">Non connesso</span>
+</div>
+
+<main>
+
+  <!-- SETUP -->
+  <div class="card" id="setup-card">
+    <div class="card-label">Configurazione</div>
+    <input id="room-input" type="text" placeholder="Nome stanza (es: prova-giovedi)"
+           maxlength="40" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div id="role-row">
+      <button class="role-btn active" onclick="setRole('host')"   id="role-host">🎹 Direttore</button>
+      <button class="role-btn"        onclick="setRole('viewer')" id="role-viewer">👁 Musicista</button>
+    </div>
+    <button id="connect-btn" onclick="connectRoom()">ENTRA NELLA STANZA</button>
+  </div>
+
+  <!-- BEAT DISPLAY -->
+  <div id="beat-section" style="display:none">
+    <div id="big-flash"><div id="beat-number">–</div></div>
+    <div id="dots" style="margin-top:12px"></div>
+  </div>
+
+  <!-- BPM -->
+  <div class="card host-only" id="bpm-card" style="display:none">
+    <div class="card-label">Tempo — BPM</div>
+
+    <div id="bpm-main-row">
+      <!-- − lato sinistro -->
+      <div class="bpm-step-group">
+        <button class="bpm-step-btn" onclick="changeBpm(-5)">−5<small>BPM</small></button>
+        <button class="bpm-step-btn" onclick="changeBpm(-1)" style="border-top:1px solid var(--border)">−1<small>BPM</small></button>
+      </div>
+      <!-- valore centrale -->
+      <div id="bpm-val">120<span>BPM</span></div>
+      <!-- + lato destro -->
+      <div class="bpm-step-group">
+        <button class="bpm-step-btn" onclick="changeBpm(+5)">+5<small>BPM</small></button>
+        <button class="bpm-step-btn" onclick="changeBpm(+1)" style="border-top:1px solid var(--border)">+1<small>BPM</small></button>
+      </div>
+    </div>
+
+    <input id="bpm-slider" type="range" min="40" max="240" value="120"
+           oninput="setBpm(+this.value)">
+
+    <button id="tap-btn" onclick="tapTempo()">TAP TEMPO</button>
+  </div>
+
+  <!-- MISURA -->
+  <div class="card host-only" id="meter-card" style="display:none">
+    <div class="card-label">Misura</div>
+    <div id="meter-row">
+      <button class="meter-btn" onclick="setMeter(2)" id="m2">2/4</button>
+      <button class="meter-btn" onclick="setMeter(3)" id="m3">3/4</button>
+      <button class="meter-btn active" onclick="setMeter(4)" id="m4">4/4</button>
+      <button class="meter-btn" onclick="setMeter(6)" id="m6">6/8</button>
+    </div>
+  </div>
+
+  <!-- START/STOP -->
+  <button id="start-btn" class="host-only" onclick="toggleMetronome()" style="display:none">START</button>
+
+  <!-- FLASH FOTOCAMERA -->
+  <div class="card" id="flash-card" style="display:none">
+    <div id="flash-row">
+      <div>
+        <div class="toggle-label">Flash fotocamera (LED)</div>
+        <div class="toggle-sub">Usa il flash del telefono come segnale fisico</div>
+      </div>
+      <div class="toggle" id="flash-toggle" onclick="toggleFlash()"></div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ══════════════════════════════════════════════
+// FIREBASE CONFIG
+// ══════════════════════════════════════════════
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBsB6MHZtZXk-1XTGuqJpROCGc9-KTy6pU",
+  authDomain: "studyshare-3d5f9.firebaseapp.com",
+  databaseURL: "https://studyshare-3d5f9-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "studyshare-3d5f9",
+  storageBucket: "studyshare-3d5f9.firebasestorage.app",
+  messagingSenderId: "801438647195",
+  appId: "1:801438647195:web:4424458a5d1c238c05973e"
+};
+
+// ══════════════════════════════════════════════
+// STATO
+// ══════════════════════════════════════════════
+let db, roomRef;
+let role = 'host';
+let bpm = 120, meter = 4;
+let isRunning = false;
+let anchorTime = null, anchorOffset = 0;
+let beatTimeout = null, beatCount = 0;
+let flashEnabled = false, torchTrack = null;
+
+// tap tempo
+let tapTimes = [];
+let tapResetTimer = null;
+
+// animazione overlay
+let flashAnimFrame = null;
+
+// ══════════════════════════════════════════════
+// ROLE
+// ══════════════════════════════════════════════
+function setRole(r) {
+  role = r;
+  document.getElementById('role-host').classList.toggle('active', r === 'host');
+  document.getElementById('role-viewer').classList.toggle('active', r === 'viewer');
+  document.body.classList.toggle('viewer', r === 'viewer');
+}
+
+// ══════════════════════════════════════════════
+// CONNESSIONE
+// ══════════════════════════════════════════════
+async function connectRoom() {
+  const raw = document.getElementById('room-input').value.trim();
+  if (!raw) { alert('Inserisci un nome stanza'); return; }
+  const room = raw.replace(/[^a-z0-9\-_]/gi, '-').toLowerCase();
+
+  setStatus('Connessione…', null);
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.database();
+
+    // Offset orologio server (per compensare latenza)
+    db.ref('.info/serverTimeOffset').on('value', s => {
+      anchorOffset = s.val() || 0;
+    });
+
+    roomRef = db.ref('metrosync/rooms/' + room);
+    roomRef.on('value', onRoomUpdate);
+
+    setStatus('Stanza: ' + room + (role === 'host' ? ' · direttore' : ' · musicista'), true);
+    showInterface();
+  } catch(e) {
+    setStatus('Errore Firebase: ' + e.message, false);
+  }
+}
+
+function onRoomUpdate(snap) {
+  const d = snap.val();
+  if (!d) return;
+
+  if (d.bpm !== undefined && role === 'viewer') updateBpmUI(d.bpm);
+  if (d.meter !== undefined && role === 'viewer') { meter = d.meter; buildDots(); }
+
+  const wasRunning = isRunning;
+  isRunning  = d.running   || false;
+  anchorTime = d.anchorTime || null;
+  if (d.bpm)   bpm   = d.bpm;
+  if (d.meter) meter = d.meter;
+
+  if (isRunning && anchorTime) {
+    startLocalLoop();
+  } else if (!isRunning && wasRunning) {
+    stopLocalLoop();
+  }
+
+  const btn = document.getElementById('start-btn');
+  btn.textContent = isRunning ? 'STOP' : 'START';
+  btn.classList.toggle('running', isRunning);
+}
+
+// ══════════════════════════════════════════════
+// HOST: pubblica
+// ══════════════════════════════════════════════
+function toggleMetronome() {
+  isRunning = !isRunning;
+  if (isRunning) {
+    const now = serverNow();
+    anchorTime = now;
+    roomRef.update({ running: true, bpm, meter, anchorTime: now });
+    startLocalLoop();
+  } else {
+    roomRef.update({ running: false });
+    stopLocalLoop();
+  }
+  const btn = document.getElementById('start-btn');
+  btn.textContent = isRunning ? 'STOP' : 'START';
+  btn.classList.toggle('running', isRunning);
+}
+
+function changeBpm(delta) { setBpm(bpm + delta); }
+
+function setBpm(val) {
+  bpm = Math.max(40, Math.min(240, +val));
+  updateBpmUI(bpm);
+  if (isRunning) {
+    // Riancora: tutti i client si riallineano al nuovo BPM
+    const now = serverNow();
+    anchorTime = now;
+    roomRef.update({ bpm, anchorTime: now });
+    startLocalLoop();
+  } else {
+    roomRef && roomRef.update({ bpm });
+  }
+}
+
+function updateBpmUI(val) {
+  bpm = val;
+  document.getElementById('bpm-val').innerHTML = val + '<span>BPM</span>';
+  document.getElementById('bpm-slider').value = val;
+}
+
+function setMeter(m) {
+  meter = m;
+  [2,3,4,6].forEach(n =>
+    document.getElementById('m'+n).classList.toggle('active', n === m)
+  );
+  buildDots();
+  roomRef && roomRef.update({ meter: m });
+}
+
+// ── TAP TEMPO ──────────────────────────────
+function tapTempo() {
+  const now = Date.now();
+  const btn = document.getElementById('tap-btn');
+
+  // Reset se > 2s dall'ultimo tap
+  clearTimeout(tapResetTimer);
+  tapResetTimer = setTimeout(() => {
+    tapTimes = [];
+    btn.classList.remove('tapping');
+    btn.textContent = 'TAP TEMPO';
+  }, 2000);
+
+  tapTimes.push(now);
+  if (tapTimes.length > 8) tapTimes.shift(); // finestra scorrevole 8 tap
+
+  if (tapTimes.length >= 2) {
+    const intervals = [];
+    for (let i = 1; i < tapTimes.length; i++)
+      intervals.push(tapTimes[i] - tapTimes[i-1]);
+    const avg = intervals.reduce((a,b) => a+b, 0) / intervals.length;
+    const detected = Math.round(60000 / avg);
+    setBpm(detected);
+    btn.classList.add('tapping');
+    btn.textContent = '♩ ' + detected + ' BPM — continua a battere…';
+  } else {
+    btn.classList.add('tapping');
+    btn.textContent = '♩ Batti ancora…';
+  }
+}
+
+// ══════════════════════════════════════════════
+// LOOP LOCALE — ogni client batte da solo
+// Usa anchorTime come ancora assoluta
+// ══════════════════════════════════════════════
+function startLocalLoop() {
+  stopLocalLoop();
+  scheduleNext();
+}
+
+function scheduleNext() {
+  if (!isRunning || !anchorTime) return;
+  const ms = 60000 / bpm;
+  const now = serverNow();
+  const elapsed = now - anchorTime;
+  const nextN = Math.floor(elapsed / ms) + 1;
+  const nextT = anchorTime + nextN * ms;
+  const delay = nextT - now;
+  beatCount = nextN;
+
+  beatTimeout = setTimeout(() => {
+    doBeat(beatCount % meter);
+    scheduleNext();
+  }, Math.max(0, delay));
+}
+
+function stopLocalLoop() {
+  clearTimeout(beatTimeout);
+  beatTimeout = null;
+  resetDisplay();
+}
+
+function doBeat(pos) {
+  const isFirst = pos === 0;
+  triggerFlash(isFirst);
+  document.getElementById('beat-number').textContent = pos + 1;
+  updateDots(pos, isFirst);
+  if (flashEnabled && torchTrack) doTorch();
+}
+
+// ── Animazione schermo ─────────────────────
+function triggerFlash(isFirst) {
+  const box = document.getElementById('big-flash');
+  const ov  = document.getElementById('flash-overlay');
+
+  box.classList.add('beat');
+  ov.style.opacity = isFirst ? '0.55' : '0.30';
+  ov.style.transition = 'none';
+
+  cancelAnimationFrame(flashAnimFrame);
+  const dur = isFirst ? 130 : 90;
+  const start = performance.now();
+
+  flashAnimFrame = requestAnimationFrame(function fade(t) {
+    const prog = Math.min((t - start) / dur, 1);
+    const base = isFirst ? 0.55 : 0.30;
+    ov.style.opacity = (base * (1 - prog)).toFixed(3);
+    if (prog < 1) {
+      flashAnimFrame = requestAnimationFrame(fade);
+    } else {
+      ov.style.opacity = '0';
+      box.classList.remove('beat');
+    }
+  });
+}
+
+// ══════════════════════════════════════════════
+// DOTS
+// ══════════════════════════════════════════════
+function buildDots() {
+  const c = document.getElementById('dots');
+  c.innerHTML = '';
+  for (let i = 0; i < meter; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot'; d.id = 'dot'+i;
+    c.appendChild(d);
+  }
+}
+
+function updateDots(pos, isFirst) {
+  for (let i = 0; i < meter; i++) {
+    const d = document.getElementById('dot'+i);
+    if (!d) continue;
+    d.classList.remove('active','accent-beat');
+    if (i === pos) {
+      d.classList.add(isFirst ? 'accent-beat' : 'active');
+      setTimeout(() => d.classList.remove('active','accent-beat'), 160);
+    }
+  }
+}
+
+function resetDisplay() {
+  document.getElementById('beat-number').textContent = '–';
+  document.getElementById('big-flash').classList.remove('beat');
+  document.getElementById('flash-overlay').style.opacity = '0';
+  for (let i = 0; i < meter; i++) {
+    const d = document.getElementById('dot'+i);
+    if (d) d.classList.remove('active','accent-beat');
+  }
+}
+
+// ══════════════════════════════════════════════
+// TORCH
+// ══════════════════════════════════════════════
+async function toggleFlash() {
+  const toggle = document.getElementById('flash-toggle');
+  if (!flashEnabled) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      torchTrack = stream.getVideoTracks()[0];
+      if (!torchTrack.getCapabilities().torch) {
+        alert('Flash LED non supportato su questo browser/dispositivo.\nFunziona meglio su Android + Chrome.');
+        torchTrack.stop(); torchTrack = null; return;
+      }
+      flashEnabled = true; toggle.classList.add('on');
+    } catch(e) { alert('Permesso fotocamera negato.'); }
+  } else {
+    if (torchTrack) { torchTrack.stop(); torchTrack = null; }
+    flashEnabled = false; toggle.classList.remove('on');
+  }
+}
+
+function doTorch() {
+  torchTrack.applyConstraints({ advanced: [{ torch: true }] });
+  setTimeout(() => torchTrack.applyConstraints({ advanced: [{ torch: false }] }), 55);
+}
+
+// ══════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════
+function serverNow() { return Date.now() + anchorOffset; }
+
+function setStatus(msg, ok) {
+  document.getElementById('status-text').textContent = msg;
+  const d = document.getElementById('conn-dot');
+  d.className = ok === true ? 'ok' : ok === false ? 'err' : '';
+}
+
+function showInterface() {
+  document.getElementById('setup-card').style.display = 'none';
+  document.getElementById('beat-section').style.display = 'block';
+  ['bpm-card','meter-card','start-btn','flash-card'].forEach(id => {
+    document.getElementById(id).style.display = '';
+  });
+  buildDots(); setMeter(4);
+}
+</script>
+</body>
+</html>
